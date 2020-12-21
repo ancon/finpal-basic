@@ -1,0 +1,269 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of FinPald: https://github.com/finpal/finpal-basic
+    Copyright (c) 2019 ~ 2020 FinPal Alliance.
+*/
+//==============================================================================
+
+#include <BeastConfig.h>
+#include <mtchain/basics/strHex.h>
+#include <mtchain/crypto/KeyType.h>
+#include <mtchain/net/RPCErr.h>
+#include <mtchain/protocol/ErrorCodes.h>
+#include <mtchain/protocol/JsonFields.h>
+#include <mtchain/protocol/PublicKey.h>
+#include <mtchain/protocol/SecretKey.h>
+#include <mtchain/protocol/Seed.h>
+#include <mtchain/rpc/Context.h>
+#include <mtchain/rpc/impl/RPCHelpers.h>
+#include <mtchain/rpc/handlers/SmartContract.h>
+#include <ed25519-donna/ed25519.h>
+#include <boost/optional.hpp>
+#include <cmath>
+#include <map>
+#include <mtchain/basics/StringUtilities.h>
+
+// in Main.cpp
+// #include "../../rpc/handlers/WalletPropose.h"
+// #include "../../rpc/Context.h"
+// #include "../../rpc/handlers/Handlers.h"
+// #include "../../rpc/handlers/SmartContract.h"
+
+#include "../../rpc/handlers/WalletPropose.h"
+#include "../../rpc/Context.h"
+#include <mtchain/rpc/handlers/Handlers.h>
+#include "../../rpc/handlers/SmartContract.h"
+#include <mtchain/net/RPCCall.h>
+#include "../../../test/jtx/Env.h"
+
+extern "C" {
+#include "/bc/lua-5.3.4/src/lua.h"
+#include "/bc/lua-5.3.4/src/lualib.h"
+#include "/bc/lua-5.3.4/src/lauxlib.h"
+}
+
+lua_State* L;
+
+static int average(lua_State *L)
+{
+	/* get number of arguments */
+	int n = lua_gettop(L);
+	double sum = 0;
+	int i;
+
+	/* loop through each argument */
+	for (i = 1; i <= n; i++)
+	{
+		/* total the arguments */
+		sum += lua_tonumber(L, i);
+	}
+
+	/* push the average */
+	lua_pushnumber(L, sum / n);
+
+	/* push the sum */
+	lua_pushnumber(L, sum);
+
+	// call wallet propose
+	//Json::Value j = mtchain::walletPropose(NULL);
+	//std::cout << j.toStyledString();
+
+	/* return the number of results */
+	return 2;
+}
+
+static int scWalletPropose(lua_State *L)
+{
+	// call walletPropose
+	Json::Value j = mtchain::walletPropose(NULL);
+	std::cout << j.toStyledString();
+
+	// push the result string
+	if (lua_pushstring(L, j.toStyledString().c_str()))
+	{
+		return 1;
+	}
+
+	/* return error */
+	return -1;
+}
+
+int testSmartContract()
+{
+	/* initialize Lua */
+	//L = lua_open();
+
+	/* load Lua base libraries */
+	//luaL_openlibs(L);
+
+	lua_State *L = luaL_newstate();
+	luaL_openlibs(L);
+
+	/* register our function */
+	lua_register(L, "average", average);
+
+	/* run the script */
+	luaL_dofile(L, "avg.lua");
+
+	/* cleanup Lua */
+	lua_close(L);
+
+	return 0;
+}
+
+int callSmartContract(std::string const& sc)
+{
+	/* initialize Lua */
+	//L = lua_open();
+
+	/* load Lua base libraries */
+	//luaL_openlibs(L);
+
+	lua_State *L = luaL_newstate();
+	luaL_openlibs(L);
+
+	/* register our function */
+	lua_register(L, "average", average);
+	lua_register(L, "scWalletPropose", scWalletPropose);
+
+	/* run the script */
+	//luaL_dofile(L, "avg.lua");
+	int ret = luaL_dostring(L, sc.c_str()); // It returns false if there are no errors or true in case of errors.
+
+	/* cleanup Lua */
+	lua_close(L);
+
+	return ret;
+}
+
+std::string loadSmartContract(mtchain::RPC::Context& context, std::string const& tx_hash)
+{
+	std::vector<std::string> const& args = { "tx", "2BCDFD0A8EB68C1EB3F8F1422B8D4F22B3D06EFA47F2B62103504576995918D0" };
+
+	auto config = std::make_unique<mtchain::Config>();
+	config->setup("", false, false, false);
+
+	beast::severities::Severity thresh = beast::severities::Severity::kInfo;
+	auto logs = std::make_unique<mtchain::Logs>(thresh);
+
+	///std::pair<int, Json::Value> jvOut = rpcClient(args, *config, *logs);
+	//Json::Value j = jvOut.second;
+
+	
+
+	Json::Value j;
+	//Json::Value params();
+	context.params[mtchain::jss::command] = "tx";
+	//context.params[mtchain::jss::transaction] = "2BCDFD0A8EB68C1EB3F8F1422B8D4F22B3D06EFA47F2B62103504576995918D0";
+	mtchain::RPC::doCommand(context, j);
+
+	std::cout << "---------result--------------";
+	std::cout << j.toStyledString();
+
+	std::cout << "---------Memos--------------";
+	std::cout << j["Memos"].toStyledString();
+
+	std::string memo_type = j["Memos"][0u]["Memo"]["MemoType"].asString(); // get array must use index with 'u'
+	std::cout << memo_type << std::endl;
+
+	if (memo_type.size() % 2)
+	{
+		memo_type.append(" ");
+	}
+	std::pair<mtchain::Blob, bool> data = mtchain::strUnHex(memo_type);
+	if (data.second)
+	{
+		mtchain::Serializer s(data.first.data(), data.first.size());
+		std::cout << s.getString() << std::endl;
+	}
+
+	std::string memo_data = j["Memos"][0u]["Memo"]["MemoData"].asString(); // get array must use index with 'u'
+	std::cout << memo_data << std::endl;
+
+	if (memo_data.size() % 2)
+	{
+		memo_data.append(" ");
+	}
+	std::string sc = "";
+	data = mtchain::strUnHex(memo_data);
+	if (data.second)
+	{
+		mtchain::Serializer s(data.first.data(), data.first.size());
+		std::cout << s.getString() << std::endl;
+	}
+	sc = mtchain::scDecode(memo_data);
+	std::cout << sc << std::endl;
+
+	//callSmartContract(sc);
+
+	return sc;
+}
+
+bool test_smart_contract(mtchain::RPC::Context& context)
+{
+	std::string sc = loadSmartContract(context,"tx hash");
+
+	int isError = callSmartContract(sc);
+
+	if (isError)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+
+namespace mtchain {
+
+//extern bool test_smart_contract();
+
+Json::Value doSmartContract (RPC::Context& context)
+{
+    return smartContract (context);
+}
+
+Json::Value smartContract (mtchain::RPC::Context& context)
+{
+
+    Json::Value ret;
+	if (test_smart_contract(context))
+	{
+		ret[jss::smart_contract] = "my smart contract success";
+	}
+	else
+	{
+		ret[jss::smart_contract] = "my smart contract fail";
+	}
+	
+    return ret;
+}
+
+std::string scEncode(std::string const& str)
+{
+	std::string hex = "";
+	hex = strHex(str);
+
+	return hex;
+}
+
+std::string scDecode(std::string& hex)
+{
+	std::string str = "";
+
+	if (hex.size() % 2)
+	{
+		hex.append(" ");
+	}
+	std::pair<Blob, bool> data = strUnHex(hex);
+	if (data.second)
+	{
+		Serializer s(data.first.data(), data.first.size());
+		std::cout << s.getString() << std::endl;
+		str = s.getString();
+	}
+
+	return str;
+}
+
+} //

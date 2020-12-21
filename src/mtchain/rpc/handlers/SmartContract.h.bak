@@ -1,0 +1,22 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of FinPald: https://github.com/finpal/finpal-basic
+    Copyright (c) 2019 ~ 2020 FinPal Alliance.
+*/
+//==============================================================================
+
+#ifndef MTCHAIN_RPC_HANDLERS_SMARTCONTRACT_H
+#define MTCHAIN_RPC_HANDLERS_SMARTCONTRACT_H
+
+#include <mtchain/json/json_value.h>
+
+namespace mtchain {
+
+Json::Value smartContract (mtchain::RPC::Context& context);
+
+std::string scEncode(std::string const& str);
+std::string scDecode(std::string& hex);
+
+} //
+
+#endif
